@@ -1,71 +1,52 @@
-#include <NimBLEDevice.h>
+#include <math.h>
+#include <stdbool.h>
+#include <stdint.h>
 
-// ---- Configuration ----
-const char* TARGET_ADDRESS = "aa:bb:cc:dd:ee:ff"; // lowercase BLE address of the device to track
-const int   RSSI_NEAR = -40;   // dBm at closest distance -> byte 255
-const int   RSSI_FAR  = -90;   // dBm at farthest distance -> byte 0
-const float SMOOTHING = 0.2;   // 0..1, lower = smoother but slower
-const int   OUTPUT_PIN = 2;    // PWM pin (GPIO2 is the onboard LED on many ESP32 boards)
+/* ---- Configuration ---- */
+#define DISTANCE_NEAR_M  0.5f   /* at or below this distance -> byte 255 */
+#define DISTANCE_FAR_M   5.0f   /* at or above this distance -> byte 0   */
+#define SMOOTHING        0.3f   /* 0..1, lower = smoother but slower     */
 
-float smoothedRssi = 0;
-bool  hasFirstReading = false;
+static float   smoothed_distance_m = 0.0f;
+static bool    have_first_reading  = false;
+static uint8_t last_byte           = 0;
 
-// Converts RSSI to a byte: RSSI_NEAR -> 255, RSSI_FAR -> 0
-uint8_t rssiToByte(float rssi) {
-  // Clamp to the calibrated range
-  if (rssi > RSSI_NEAR) {
-    rssi = RSSI_NEAR;
-  }
-  if (rssi < RSSI_FAR) {
-    rssi = RSSI_FAR;
-  }
-
-  // Normalize to 0.0 .. 1.0 (1.0 = closest)
-  float fraction = (rssi - RSSI_FAR) / (float)(RSSI_NEAR - RSSI_FAR);
-
-  // Scale to 0 .. 255
-  return (uint8_t)(fraction * 255.0 + 0.5);
-}
-
-class ScanCallbacks : public NimBLEScanCallbacks {
-  void onResult(const NimBLEAdvertisedDevice* device) override {
-    // Only react to our target device
-    if (device->getAddress().toString() != TARGET_ADDRESS) {
-      return;
+/* Maps a distance in meters to a byte: near -> 255, far -> 0 */
+static uint8_t distance_to_byte(float distance_m)
+{
+    /* Step 1: clamp to the calibrated range */
+    if (distance_m < DISTANCE_NEAR_M) {
+        distance_m = DISTANCE_NEAR_M;
+    }
+    if (distance_m > DISTANCE_FAR_M) {
+        distance_m = DISTANCE_FAR_M;
     }
 
-    int rawRssi = device->getRSSI();
+    /* Step 2: normalize to 0.0 .. 1.0 (1.0 = closest) */
+    float fraction = (DISTANCE_FAR_M - distance_m) /
+                     (DISTANCE_FAR_M - DISTANCE_NEAR_M);
 
-    // Exponential moving average, because raw RSSI is noisy
-    if (!hasFirstReading) {
-      smoothedRssi = rawRssi;
-      hasFirstReading = true;
+    /* Step 3: scale to 0 .. 255 */
+    return (uint8_t)(fraction * 255.0f + 0.5f);
+}
+
+/* Call this once per new distance estimate. Returns the current byte. */
+uint8_t update_proximity_byte(float raw_distance_m)
+{
+    /* Ignore invalid results (the sample can report NaN or negative values) */
+    if (isnan(raw_distance_m) || raw_distance_m < 0.0f) {
+        return last_byte;
+    }
+
+    /* Exponential moving average to calm the jitter */
+    if (!have_first_reading) {
+        smoothed_distance_m = raw_distance_m;
+        have_first_reading = true;
     } else {
-      smoothedRssi = SMOOTHING * rawRssi + (1.0 - SMOOTHING) * smoothedRssi;
+        smoothed_distance_m = SMOOTHING * raw_distance_m +
+                              (1.0f - SMOOTHING) * smoothed_distance_m;
     }
 
-    uint8_t value = rssiToByte(smoothedRssi);
-
-    Serial.printf("raw=%d dBm  smoothed=%.1f dBm  byte=%u\n", rawRssi, smoothedRssi, value);
-
-    // Use the byte here: PWM LED brightness (or send it over serial, etc.)
-    analogWrite(OUTPUT_PIN, value);
-  }
-};
-
-void setup() {
-  Serial.begin(115200);
-  pinMode(OUTPUT_PIN, OUTPUT);
-
-  NimBLEDevice::init("");
-  NimBLEScan* scan = NimBLEDevice::getScan();
-  scan->setScanCallbacks(new ScanCallbacks(), true); // true = report duplicates (needed for continuous RSSI)
-  scan->setActiveScan(false);
-  scan->setInterval(100);
-  scan->setWindow(100);
-  scan->start(0, false); // 0 = scan forever
-}
-
-void loop() {
-  // Nothing to do, scanning runs in the background
+    last_byte = distance_to_byte(smoothed_distance_m);
+    return last_byte;
 }
