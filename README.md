@@ -1,2 +1,2 @@
 # tech
-smh
+main 1.0
