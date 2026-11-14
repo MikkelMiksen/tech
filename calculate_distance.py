@@ -1,47 +1,61 @@
 import re
 import numpy as np
 
-def calculate_distance(serial_input: str) -> float:
+with open("output.txt", "r", encoding="utf-8") as file:
+    SAMPLE_TEXT = file.readlines()
 
-    ifft        = re.match(r"(?<=ifft: )\d+\.\d+",        serial_input)
-    phase_slope = re.match(r"(?<=phase_slope: )\d+\.\d+", serial_input)
-    rtt         = re.match(r"(?<=rtt: )\d+\.\d+",         serial_input)
+class DistCalc:
+    SIGMA = (0.68, 1.14, 1.0)
+    BIAS = (1.74, 4.45, 3.78)
 
-    try:
-        ifft        = int(ifft)
-        phase_slope = int(phase_slope)
-        rtt         = int(rtt)
+    PATTERN = re.compile(
+        r"ifft:\s*(-?\d+(?:\.\d+)?),\s*"
+        r"phase_slope:\s*(-?\d+(?:\.\d+)?),\s*"
+        r"rtt:\s*(-?\d+(?:\.\d+)?)"
+    )
 
-        # Placeholder sigmas (meters): replace with your measured values
-        SIGMA = np.array([ifft, phase_slope, rtt])   # ifft, phase_slope, rtt
-        GATE  = 1.0                                  # max deviation from median (m)
+    def __init__(self, sigma=SIGMA, bias=BIAS, gate=1.0, q=0.01, min_sigma=0.05):
+        self.sigma = np.maximum(np.asarray(sigma, dtype=float), min_sigma)
+        self.bias = np.asarray(bias, dtype=float)
+        self.gate = gate
+        self.q = q
+        self.x = None   # Kalman state: distance
+        self.p = None   # Kalman state: variance
 
-        def fuse(ifft, phase_slope, rtt):
-            est = np.array([ifft, phase_slope, rtt])
-            ok = np.abs(est - np.median(est)) < GATE
-            if not ok.any():
-                return float(np.median(est)), SIGMA.max()
-            w = 1.0 / SIGMA[ok]**2
-            d = np.sum(w * est[ok]) / np.sum(w)
-            var = 1.0 / np.sum(w)
-            return float(d), float(np.sqrt(var))
+    def _fuse(self, est):
+        ok = np.abs(est - np.median(est)) < self.gate
+        if not ok.any():
+            return float(np.median(est)), float(self.sigma.max())
+        w = 1.0 / self.sigma[ok] ** 2
+        d = np.sum(w * est[ok]) / np.sum(w)
+        return float(d), float(np.sqrt(1.0 / np.sum(w)))
 
-        class Kalman1D:
-            def __init__(self, d0, p0=1.0, q=0.01):
-                self.x, self.p, self.q = d0, p0, q
-            def update(self, z, r):
-                self.p += self.q                 # predict (process noise)
-                k = self.p / (self.p + r)        # gain
-                self.x += k * (z - self.x)
-                self.p *= (1 - k)
-                return self.x
+    def _kalman(self, z, r):
+        if self.x is None:
+            self.x, self.p = z, r
+            return self.x
+        self.p += self.q
+        k = self.p / (self.p + r)
+        self.x += k * (z - self.x)
+        self.p *= (1 - k)
+        return self.x
 
-        # usage
-        d, sigma = fuse(ifft, phase_slope, rtt)
-        kf = Kalman1D(d)                       # init on first sample
-        smoothed = kf.update(d, sigma**2)
+    def calculate_distance(self, serial_input):
+        if isinstance(serial_input, bytes):
+            serial_input = serial_input.decode("utf-8", errors="ignore")
 
-        return smoothed
+        m = self.PATTERN.search(serial_input)
+        if m is None:
+            print("Did not find float values in text")
+            return None
 
-    except:
-        return None
+        raw = np.array([float(g) for g in m.groups()])
+        est = raw - self.bias                 # apply stored bias correction
+        d, sigma = self._fuse(est)
+        return self._kalman(d, sigma ** 2)
+
+
+if __name__ == "__main__":
+    calc = DistCalc()                         # uses BIAS and SIGMA above
+    for line in SAMPLE_TEXT:
+        print(f"{calc.calculate_distance(line):.2f} m")
