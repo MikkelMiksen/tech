@@ -11,7 +11,9 @@ class VolCalc:
         history_avg = sum(self.history) / self.smooth_range
         normalized_avg = min((history_avg / self.zero_distance), 1.0)
         new_volume = 1 - normalized_avg
-        return new_volume
+        scalar = 2
+        sigmoid_volume = (new_volume**scalar)/(new_volume**scalar + (1 - new_volume)**scalar)
+        return sigmoid_volume
 
 
 def get_sample_distances() -> list[float]:
