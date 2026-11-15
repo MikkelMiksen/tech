@@ -2,11 +2,12 @@ class VolCalc:
     def __init__(self, zero_distance:float=10.0, smooth_range:int=10):
         self.zero_distance = zero_distance           # number of meters away where the volume starts fading in
         self.smooth_range  = smooth_range            # length of the history list
-        self.history       = [0.0]*self.smooth_range # history of distance values
+        self.history       = [self.zero_distance]*self.smooth_range # history of distance values
 
     def calculate_volume(self, new_distance:float) -> float:
-        self.history = self.history[1:]
-        self.history.append(new_distance)
+        if new_distance != None:
+            self.history = self.history[1:]
+            self.history.append(new_distance)
         history_avg = sum(self.history) / self.smooth_range
         normalized_avg = min((history_avg / self.zero_distance), 1.0)
         new_volume = 1 - normalized_avg
@@ -17,7 +18,7 @@ def get_sample_distances() -> list[float]:
     import random
     sample_distances = []
     for _ in range(100):
-        sample_distances.append(random.random() * 10)
+        sample_distances.append(random.random() * 4)
     return sample_distances
 
 
