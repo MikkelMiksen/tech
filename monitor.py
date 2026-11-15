@@ -14,7 +14,7 @@ pygame.mixer.music.set_volume(0)
 pygame.mixer.music.play(loops=-1)
 
 sound = pygame.mixer.Sound("sounds/guide.mp3")
-
+s_volume=0
 sound_playing = False
 
 with open("output.txt", "a") as f:
@@ -22,21 +22,22 @@ with open("output.txt", "a") as f:
         serial_line = s.readline()
 
         distance = d_calc.calculate_distance(serial_line)
+        a_volume = a_vol_calc.calculate_volume(distance)
 
         if distance != None:
             if distance < 3 and not sound_playing:
-                s_volume = s_vol_calc.calculate_volume(distance)
                 sound.play()
-                sound.set_volume(s_volume)
                 sound_playing = True
-
+            if sound_playing: 
+                s_volume = s_vol_calc.calculate_volume(distance)
+                sound.set_volume(s_volume)
             if distance > 4.5 and sound_playing:
                 sound.stop()
                 sound_playing = False
 
-        a_volume = a_vol_calc.calculate_volume(distance)
 
-        print("distance: ", distance, " vol: ", a_volume)
+        print("distance: ", distance, " a_vol: ", a_volume, " s_vol: ", s_volume)
+
 
         pygame.mixer.music.set_volume(a_volume)
 

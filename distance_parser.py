@@ -1,8 +1,6 @@
 import re
 import numpy as np
 
-with open("output.txt", "r", encoding="utf-8") as file:
-    SAMPLE_TEXT = file.readlines()
 
 class DistCalc:
     SIGMA = (0.68, 1.14, 1.0)
@@ -54,8 +52,3 @@ class DistCalc:
         d, sigma = self._fuse(est)
         return self._kalman(d, sigma ** 2)
 
-
-if __name__ == "__main__":
-    calc = DistCalc()                         # uses BIAS and SIGMA above
-    for line in SAMPLE_TEXT:
-        print(f"{calc.calculate_distance(line):.2f} m")
